@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import * as md5 from "md5";
+import { createHash } from "crypto";
 import { extname } from "path";
 import { AsciidocLink, Graph, EdgeType } from "./types";
 
@@ -119,7 +119,8 @@ export const findAsciidocTitle = (content: string): string | null => {
 };
 
 export const id = (path: string): string => {
-  return md5(path.substring(0, path.length - extname(path).length));
+  const pathWithoutExt = path.substring(0, path.length - extname(path).length);
+  return createHash("md5").update(pathWithoutExt).digest("hex");
 };
 
 export const getConfiguration = (key: string) =>
