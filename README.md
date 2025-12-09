@@ -1,3 +1,7 @@
+# Asciidoc Links
+
+Extending the functionality for Asciidoc files and to also show include directives. Links, Includes, and ITTR (include to tagged regions) are represented in different formats for this purpose.
+
 # Markdown Links
 
 Adds command `Show Graph` that displays a graph of local links between Markdown files in the current working directory.
