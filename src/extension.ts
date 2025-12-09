@@ -126,12 +126,12 @@ const watch = (
 
 export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
-    vscode.commands.registerCommand("markdown-links.showGraph", async () => {
+    vscode.commands.registerCommand("asciidoc-links.showGraph", async () => {
       const column = getColumnSetting("showColumn");
 
       const panel = vscode.window.createWebviewPanel(
-        "markdownLinks",
-        "Markdown Links",
+        "asciidocLinks",
+        "Asciidoc Links",
         column,
         {
           enableScripts: true,
@@ -164,7 +164,7 @@ export function activate(context: vscode.ExtensionContext) {
   const shouldAutoStart = getConfiguration("autoStart");
 
   if (shouldAutoStart) {
-    vscode.commands.executeCommand("markdown-links.showGraph");
+vscode.commands.executeCommand("asciidoc-links.showGraph");
   }
 }
 

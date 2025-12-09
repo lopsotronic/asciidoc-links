@@ -41,16 +41,27 @@ const sameEdges = (previous, next) => {
 
   const set = new Set();
   for (const edge of previous) {
-    set.add(`${edge.source.id}-${edge.target.id}`);
+    set.add(`${edge.source.id}-${edge.target.id}-${edge.type || 'link'}`);
   }
 
   for (const edge of next) {
-    if (!set.has(`${edge.source}-${edge.target}`)) {
+    if (!set.has(`${edge.source}-${edge.target}-${edge.type || 'link'}`)) {
       return false;
     }
   }
 
   return true;
+};
+
+const getEdgeStyle = (type) => {
+  switch (type) {
+    case "include":
+      return { stroke: "#4CAF50", strokeWidth: 2, dasharray: null };
+    case "include-partial":
+      return { stroke: "#999", strokeWidth: 1, dasharray: "2,4" };
+    default:
+      return { stroke: "#888", strokeWidth: 1, dasharray: null };
+  }
 };
 
 const element = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -103,7 +114,7 @@ const resize = () => {
 
   text.attr("font-size", `${font}px`);
   text.attr("y", (d) => d.y - zoomOrKeep(FONT_BASELINE));
-  link.attr("stroke-width", zoomOrKeep(STROKE));
+link.attr("stroke-width", (d) => zoomOrKeep(getEdgeStyle(d.type).strokeWidth));
   node.attr("r", zoomOrKeep(RADIUS));
   svg
     .selectAll("circle")
@@ -172,9 +183,15 @@ const restart = () => {
     .on("click", onClick)
     .merge(node);
 
-  link = link.data(linksData, (d) => `${d.source.id}-${d.target.id}`);
+link = link.data(linksData, (d) => `${d.source.id}-${d.target.id}-${d.type || 'link'}`);
   link.exit().remove();
-  link = link.enter().append("line").attr("stroke-width", STROKE).merge(link);
+  link = link
+    .enter()
+    .append("line")
+    .attr("stroke", (d) => getEdgeStyle(d.type).stroke)
+    .attr("stroke-width", (d) => getEdgeStyle(d.type).strokeWidth)
+    .attr("stroke-dasharray", (d) => getEdgeStyle(d.type).dasharray)
+    .merge(link);
 
   text = text.data(nodesData, (d) => d.label);
   text.exit().remove();

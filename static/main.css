@@ -18,3 +18,28 @@ body {
 .buttons span > span {
   color: var(--vscode-foreground);
 }
+
+/* Existing styles... */
+
+/* Edge type styling */
+.link-edge {
+  stroke: #888;
+  stroke-width: 1px;
+}
+
+.include-edge {
+  stroke: #4CAF50;  /* Green */
+  stroke-width: 2px;
+}
+
+.include-partial-edge {
+  stroke: #bbb;     /* Light gray */
+  stroke-width: 1px;
+  stroke-dasharray: 2, 4;  /* Fine dashed */
+}
+
+/* Node label styling for include targets */
+.include-target text {
+  font-weight: bold;
+  fill: #4CAF50;  /* Green text */
+}

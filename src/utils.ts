@@ -1,71 +1,129 @@
 import * as vscode from "vscode";
 import * as md5 from "md5";
 import { extname } from "path";
-import { MarkdownNode, Graph } from "./types";
+import { AsciidocLink, Graph, EdgeType } from "./types";
 
-export const findLinks = (ast: MarkdownNode): string[] => {
-  if (ast.type === "link" || ast.type === "definition") {
-    // Ignore empty, anchor and web links.
-    if (
-      !ast.url ||
-      ast.url.startsWith("#") ||
-      vscode.Uri.parse(ast.url).scheme.startsWith("http")
-    ) {
-      return [];
+/**
+ * Find all links in Asciidoc content.
+ * Supports:
+ * - xref:file.adoc[] or xref:file.adoc[label] - cross-references
+ * - <<file.adoc>> or <<file.adoc,label>> - inline anchors/xrefs
+ * - include::file.adoc[] - full file includes
+ * - include::file.adoc[tag=...] or [lines=...] - partial includes
+ */
+export const findAsciidocLinks = (content: string): AsciidocLink[] => {
+  const links: AsciidocLink[] = [];
+
+  // Pattern for xref: links - xref:path/to/file.adoc[] or xref:path/to/file.adoc[label]
+  const xrefPattern = /xref:([^\[]+\.adoc)\[[^\]]*\]/g;
+
+  // Pattern for <<>> style cross-references - <<file.adoc>> or <<file.adoc,label>>
+  const anchorXrefPattern = /<<([^,>]+\.adoc)(?:,[^>]*)?>>?/g;
+
+  // Pattern for include directives - include::path/to/file.adoc[...]
+  // Captures the path and the attributes inside []
+  const includePattern = /include::([^\[]+\.adoc)\[([^\]]*)\]/g;
+
+  // Pattern for simple link macros - link:file.adoc[label]
+  const linkPattern = /(?<!\w)link:([^\[]+\.adoc)\[[^\]]*\]/g;
+
+  let match;
+
+  // Find xref: links (regular gray links)
+  while ((match = xrefPattern.exec(content)) !== null) {
+    const target = match[1].trim();
+    if (!isExternalUrl(target)) {
+      links.push({ target, type: "link" });
     }
-
-    return [ast.url];
   }
 
-  if (ast.type === "wikiLink") {
-    return [ast.data!.permalink!];
+  // Find <<>> style links (regular gray links)
+  while ((match = anchorXrefPattern.exec(content)) !== null) {
+    const target = match[1].trim();
+    if (!isExternalUrl(target) && target.endsWith(".adoc")) {
+      links.push({ target, type: "link" });
+    }
   }
 
-  const links: string[] = [];
-
-  if (!ast.children) {
-    return links;
+  // Find link: macros (regular gray links)
+  while ((match = linkPattern.exec(content)) !== null) {
+    const target = match[1].trim();
+    if (!isExternalUrl(target)) {
+      links.push({ target, type: "link" });
+    }
   }
 
-  for (const node of ast.children) {
-    links.push(...findLinks(node));
+  // Find include directives
+  while ((match = includePattern.exec(content)) !== null) {
+    const target = match[1].trim();
+    const attributes = match[2].trim();
+
+    if (!isExternalUrl(target)) {
+      // Check if it's a partial include (has tag=, tags=, lines=, or leveloffset with tag)
+      const isPartial = hasPartialIncludeAttributes(attributes);
+      links.push({
+        target,
+        type: isPartial ? "include-partial" : "include",
+      });
+    }
   }
 
   return links;
 };
 
-export const findTitle = (ast: MarkdownNode): string | null => {
-  if (!ast.children) {
-    return null;
-  }
+/**
+ * Check if include attributes indicate a partial include
+ */
+const hasPartialIncludeAttributes = (attributes: string): boolean => {
+  if (!attributes) return false;
 
-  for (const child of ast.children) {
-    if (
-      child.type === "heading" &&
-      child.depth === 1 &&
-      child.children &&
-      child.children.length > 0
-    ) {
-      let title = child.children[0].value!
+  // Patterns that indicate partial includes
+  const partialPatterns = [
+    /\btag=/,      // tag=tagname
+    /\btags=/,     // tags=tag1;tag2
+    /\blines=/,    // lines=1..10 or lines=5;10;15
+  ];
 
-      const titleMaxLength = getTitleMaxLength();
-      if (titleMaxLength > 0 && title.length > titleMaxLength) {
-        title = title.substr(0, titleMaxLength).concat("...");
-      }
+  return partialPatterns.some((pattern) => pattern.test(attributes));
+};
 
-      return title;
+/**
+ * Check if a URL is external (http/https)
+ */
+const isExternalUrl = (url: string): boolean => {
+  return url.startsWith("http://") || url.startsWith("https://");
+};
+
+/**
+ * Find the document title in Asciidoc content.
+ * Asciidoc titles start with = (single equals sign with space)
+ */
+export const findAsciidocTitle = (content: string): string | null => {
+  // Match document title: = Title (level 0 heading)
+  // Must be at the start of a line
+  const titlePattern = /^= +(.+)$/m;
+  const match = content.match(titlePattern);
+
+  if (match) {
+    let title = match[1].trim();
+
+    const titleMaxLength = getTitleMaxLength();
+    if (titleMaxLength > 0 && title.length > titleMaxLength) {
+      title = title.substring(0, titleMaxLength).concat("...");
     }
+
+    return title;
   }
+
   return null;
 };
 
 export const id = (path: string): string => {
-  // Extracting file name without extension.
   return md5(path.substring(0, path.length - extname(path).length));
 };
 
 export const getConfiguration = (key: string) =>
-  vscode.workspace.getConfiguration("markdown-links")[key];
+  vscode.workspace.getConfiguration("asciidoc-links")[key];
 
 const settingToValue: { [key: string]: vscode.ViewColumn | undefined } = {
   active: -1,
@@ -83,27 +141,15 @@ const settingToValue: { [key: string]: vscode.ViewColumn | undefined } = {
 
 export const getTitleMaxLength = () => {
   return getConfiguration("titleMaxLength");
-}
+};
 
 export const getColumnSetting = (key: string) => {
   const column = getConfiguration(key);
   return settingToValue[column] || vscode.ViewColumn.One;
 };
 
-export const getFileIdRegexp = () => {
-  const DEFAULT_VALUE = "\\d{14}";
-  const userValue = getConfiguration("fileIdRegexp") || DEFAULT_VALUE;
-
-  // Ensure the id is not preceeded by [[, which would make it a part of
-  // wiki-style link, and put the user-supplied regex in a capturing group to
-  // retrieve matching string.
-  return new RegExp(`(?<!\\[\\[)(${userValue})`, "m");
-};
-
-export const FILE_ID_REGEXP = getFileIdRegexp();
-
 export const getFileTypesSetting = () => {
-  const DEFAULT_VALUE = ["md"];
+  const DEFAULT_VALUE = ["adoc", "asciidoc"];
   return getConfiguration("fileTypes") || DEFAULT_VALUE;
 };
 

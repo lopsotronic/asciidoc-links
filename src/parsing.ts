@@ -1,16 +1,11 @@
 import * as vscode from "vscode";
 import * as path from "path";
-import * as unified from "unified";
-import * as markdown from "remark-parse";
-import * as wikiLinkPlugin from "remark-wiki-link";
-import * as frontmatter from "remark-frontmatter";
-import { MarkdownNode, Graph } from "./types";
+import { AsciidocLink, Graph, EdgeType } from "./types";
 import { TextDecoder } from "util";
 import {
-  findTitle,
-  findLinks,
+  findAsciidocTitle,
+  findAsciidocLinks,
   id,
-  FILE_ID_REGEXP,
   getFileTypesSetting,
   getConfiguration,
   getTitleMaxLength,
@@ -19,27 +14,16 @@ import { basename } from "path";
 
 let idToPath: Record<string, string> = {};
 
-export const idResolver = (id: string) => {
-  const filePath = idToPath[id];
-  if (filePath === undefined) {
-    return [id];
-  } else {
-    return [filePath];
-  }
+export const idResolver = (targetId: string): string | undefined => {
+  return idToPath[targetId];
 };
-
-const parser = unified()
-  .use(markdown)
-  .use(wikiLinkPlugin, { pageResolver: idResolver })
-  .use(frontmatter);
 
 export const parseFile = async (graph: Graph, filePath: string) => {
   filePath = path.normalize(filePath);
   const buffer = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
   const content = new TextDecoder("utf-8").decode(buffer);
-  const ast: MarkdownNode = parser.parse(content);
 
-  let title: string | null = findTitle(ast);
+  let title: string | null = findAsciidocTitle(content);
 
   const index = graph.nodes.findIndex((node) => node.path === filePath);
 
@@ -47,7 +31,6 @@ export const parseFile = async (graph: Graph, filePath: string) => {
     if (index !== -1) {
       graph.nodes.splice(index, 1);
     }
-
     return;
   }
 
@@ -60,34 +43,25 @@ export const parseFile = async (graph: Graph, filePath: string) => {
   // Remove edges based on an old version of this file.
   graph.edges = graph.edges.filter((edge) => edge.source !== id(filePath));
 
-  // Returns a list of decoded links (by default markdown only supports encoded URI)
-  const links = findLinks(ast).map(uri => decodeURI(uri));
+  // Find all Asciidoc links and includes
+  const links = findAsciidocLinks(content);
   const parentDirectory = filePath.split(path.sep).slice(0, -1).join(path.sep);
 
   for (const link of links) {
-    let target = path.normalize(link);
-    if (!path.isAbsolute(link)) {
-      target = path.normalize(`${parentDirectory}/${link}`);
+    let target = path.normalize(link.target);
+    if (!path.isAbsolute(link.target)) {
+      target = path.normalize(`${parentDirectory}/${link.target}`);
     }
 
-    graph.edges.push({ source: id(filePath), target: id(target) });
+    graph.edges.push({
+      source: id(filePath),
+      target: id(target),
+      type: link.type,
+    });
   }
-};
-
-export const findFileId = async (filePath: string): Promise<string | null> => {
-  const buffer = await vscode.workspace.fs.readFile(vscode.Uri.file(filePath));
-  const content = new TextDecoder("utf-8").decode(buffer);
-
-  const match = content.match(FILE_ID_REGEXP);
-  return match ? match[1] : null;
 };
 
 export const learnFileId = async (_graph: Graph, filePath: string) => {
-  const id = await findFileId(filePath);
-  if (id !== null) {
-    idToPath[id] = filePath;
-  }
-
   const fileName = basename(filePath);
   idToPath[fileName] = filePath;
 
@@ -99,8 +73,6 @@ export const parseDirectory = async (
   graph: Graph,
   fileCallback: (graph: Graph, path: string) => Promise<void>
 ) => {
-  // `findFiles` is used here since it respects files excluded by either the
-  // global or workspace level files.exclude config option.
   const files = await vscode.workspace.findFiles(
     `**/*{${(getFileTypesSetting() as string[]).map((f) => `.${f}`).join(",")}}`
   );
